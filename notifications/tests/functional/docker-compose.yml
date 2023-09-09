@@ -1,0 +1,68 @@
+version: '3'
+
+services:
+  fastapi:
+    build: ../../src/.
+    image: fastapi-image
+    container_name: fastapi
+    privileged: true
+    env_file:
+      - .env
+    networks:
+      - backend
+    expose:
+      - "8000"
+    volumes:
+      - ./../../tests:/${APP_HOME}/tests
+
+  tests:
+    image: fastapi-image
+    container_name: tests
+    privileged: true
+    env_file:
+      - .env
+    networks:
+      - backend
+    depends_on:
+      - fastapi
+    entrypoint: ${APP_HOME}/entrypoint.sh
+    volumes:
+      - ./../../tests:/${APP_HOME}/tests
+
+  postgres:
+    image: postgres:latest
+    privileged: true
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres-db:/data/postgres
+    networks:
+      - backend
+
+  rabbitmq:
+    image: rabbitmq:latest
+    privileged: true
+    container_name: rabbitmq
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBIT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBIT_PASS}
+    ports:
+      - 5672:5672
+      - 15672:15672
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 3s
+    networks:
+      - backend
+
+networks:
+  backend:
+
+volumes:
+  postgres-db:

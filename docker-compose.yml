@@ -1,0 +1,163 @@
+version: '3'
+
+services:
+  admin_panel:
+    build: ./admin_panel/
+    privileged: true
+    env_file:
+      - ./.env
+    expose:
+      - "8000"
+    depends_on:
+      - postgres
+    entrypoint: ${APP_HOME}/entrypoint.sh
+    volumes:
+      - static_volume:${APP_HOME}/staticfiles
+    networks:
+      - backend
+
+  fastapi-content-api:
+    build: ./content_api/src/
+    env_file:
+      - .env
+    networks:
+      - backend
+    expose:
+      - "8000"
+    depends_on:
+      - es
+      - redis
+
+  fastapi-auth-api:
+    build: ./auth_api/src/
+    env_file:
+      - .env
+    networks:
+      - backend
+    expose:
+      - "8000"
+    depends_on:
+      - postgres
+      - redis
+
+  fastapi-users-interact-api:
+    build: ./users_interact_api/src/
+    env_file:
+      - .env
+    networks:
+      - backend
+    expose:
+      - "8000"
+    depends_on:
+      - postgres
+      - redis
+
+  fastapi-notify-api:
+    build: ./notifications/src/
+    env_file:
+      - .env
+    networks:
+      - backend
+    expose:
+      - "8000"
+    depends_on:
+      - postgres
+      - rabbitmq
+    entrypoint: ${APP_HOME}/entrypoint.sh
+
+  nginx:
+    image: nginx:latest
+    restart: on-failure
+    privileged: true
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d/site.conf:/etc/nginx/conf.d/site.conf:ro
+      - static_volume:${APP_HOME}/staticfiles
+    depends_on:
+      - admin_panel
+      - jaeger
+      - fastapi-auth-api
+      - fastapi-content-api
+    ports:
+      - "80:80"
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:latest
+    privileged: true
+    env_file:
+      - ./.env
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - ./db_dump/dump.sql:/docker-entrypoint-initdb.d/dump.sql
+      - postgres-db:/data/postgres
+    networks:
+      - backend
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    privileged: true
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 50
+
+  es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.6.2
+    container_name: es
+    environment:
+      - "discovery.type=single-node"
+      - "xpack.security.enabled=false"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    networks:
+      - backend
+    volumes:
+      - es-db:/data/es
+
+  mongo:
+    image: mongo:latest
+    privileged: true
+    env_file:
+      - ./.env
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      - ./mongo-local.js:/docker-entrypoint-initdb.d/mongo-local.js:ro
+    ports:
+      - "27017:27017"
+
+  rabbitmq:
+    image: rabbitmq:latest
+    privileged: true
+    container_name: rabbitmq
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBIT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBIT_PASS}
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 3s
+    networks:
+      - backend
+
+volumes:
+  postgres-db:
+  es-db:
+  static_volume:
+
+networks:
+  backend:

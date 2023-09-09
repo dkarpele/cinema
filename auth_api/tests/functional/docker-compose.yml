@@ -1,0 +1,65 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:latest
+    privileged: true
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres-db:/data/postgres
+    networks:
+      - backend
+
+  fastapi:
+    build: ../../src/.
+    image: fastapi-image
+    container_name: fastapi
+    privileged: true
+    env_file:
+      - .env
+    networks:
+      - backend
+    expose:
+      - "8000"
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./../../tests:/${APP_HOME}/tests
+
+  tests:
+    image: fastapi-image
+    container_name: tests
+    privileged: true
+    env_file:
+      - .env
+    networks:
+      - backend
+    depends_on:
+      - redis
+      - fastapi
+    entrypoint: ${APP_HOME}/entrypoint.sh
+    volumes:
+      - ./../../tests:/${APP_HOME}/tests
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    privileged: true
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 30s
+      timeout: 10s
+      retries: 50
+
+networks:
+  backend:
+
+volumes:
+  postgres-db:
